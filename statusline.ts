@@ -104,12 +104,126 @@ function windowSegment(label: string, win?: Window): string {
   const pct = win?.used_percentage;
   if (pct == null) return `${C.dim}${label} —${C.reset}`;
   const reset = fmtReset(win?.resets_at);
-  const resetPart = reset ? ` ${C.dim}(${reset})${C.reset}` : "";
+  const resetPart = reset ? ` ${C.dim}(reset dans ${reset})${C.reset}` : "";
   return `${C.dim}${label}${C.reset} ${bar(pct)}${resetPart}`;
 }
 
 function basename(p: string): string {
   return p.replace(/\/+$/, "").split("/").pop() || p;
+}
+
+// --- Cache des derniers rate_limits connus -----------------------------------
+//
+// Claude Code ne fournit `rate_limits` qu'APRÈS la première réponse de la
+// session. Pour afficher les barres « tout le temps », on persiste la dernière
+// valeur vue dans ce fichier, et on la relit quand stdin n'en fournit pas.
+const CACHE_PATH = join(homedir(), ".claude", ".statusline-cache.json");
+
+type RateLimits = NonNullable<StatusInput["rate_limits"]>;
+
+// Lecture best-effort : tout échec (absent, illisible) → undefined.
+function readCache(): RateLimits | undefined {
+  try {
+    return JSON.parse(readFileSync(CACHE_PATH, "utf8")) as RateLimits;
+  } catch {
+    return undefined;
+  }
+}
+
+// Écriture best-effort : on n'interrompt jamais le rendu si l'écriture échoue.
+function writeCache(rl: RateLimits): void {
+  try {
+    writeFileSync(CACHE_PATH, JSON.stringify(rl));
+  } catch {
+    /* le cache est un confort, pas une obligation */
+  }
+}
+
+// Considère une fenêtre comme « fraîche » si elle porte un pourcentage réel.
+function hasFreshData(rl?: RateLimits): boolean {
+  return rl?.five_hour?.used_percentage != null;
+}
+
+// --- Source fraîche : appel API direct (fenêtre de démarrage uniquement) -----
+//
+// Claude Code ne met `rate_limits` sur stdin qu'APRÈS la 1ʳᵉ réponse. Pour avoir
+// du frais dès le lancement, on interroge l'API avec le token OAuth de Claude
+// Code et on lit les en-têtes `anthropic-ratelimit-unified-*` de la réponse.
+//
+// Découvertes empiriques importantes :
+//   - le token OAuth d'abonnement EXIGE le system prompt « You are Claude Code »
+//     (sinon 429) ;
+//   - `…-utilization` est une fraction 0–1 → × 100 ; `…-reset` est déjà un epoch.
+const CREDENTIALS_PATH = join(homedir(), ".claude", ".credentials.json");
+const FETCH_TIMEOUT_MS = 2500; // borne la latence ajoutée au démarrage
+
+function readOAuthToken(): string | undefined {
+  try {
+    const creds = JSON.parse(readFileSync(CREDENTIALS_PATH, "utf8"));
+    return creds?.claudeAiOauth?.accessToken;
+  } catch {
+    return undefined;
+  }
+}
+
+function windowFromHeaders(
+  headers: Headers,
+  prefix: "5h" | "7d",
+): Window | undefined {
+  const util = headers.get(`anthropic-ratelimit-unified-${prefix}-utilization`);
+  if (util == null) return undefined;
+  const reset = headers.get(`anthropic-ratelimit-unified-${prefix}-reset`);
+  return {
+    used_percentage: Number(util) * 100,
+    resets_at: reset != null ? Number(reset) : undefined,
+  };
+}
+
+// Best-effort : toute erreur (token absent/expiré, hors-ligne, timeout) → undefined.
+async function fetchFreshRateLimits(): Promise<RateLimits | undefined> {
+  const token = readOAuthToken();
+  if (!token) return undefined;
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      headers: {
+        authorization: `Bearer ${token}`,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "oauth-2025-04-20",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-opus-4-8",
+        max_tokens: 1,
+        system: "You are Claude Code, Anthropic's official CLI for Claude.",
+        messages: [{ role: "user", content: "." }],
+      }),
+    });
+    const five = windowFromHeaders(res.headers, "5h");
+    if (!five) return undefined; // pas d'en-têtes utiles → on laisse tomber
+    return { five_hour: five, seven_day: windowFromHeaders(res.headers, "7d") };
+  } catch {
+    return undefined;
+  }
+}
+
+// Décide quels rate_limits afficher, et tient le cache à jour.
+//   1. stdin frais (post-1ʳᵉ réponse) → vérité, on persiste. AUCUN réseau.
+//   2. démarrage          → on va chercher du frais via l'API ; à défaut, cache.
+async function resolveRateLimits(
+  fromStdin?: RateLimits,
+): Promise<RateLimits | undefined> {
+  if (hasFreshData(fromStdin)) {
+    writeCache(fromStdin!);
+    return fromStdin;
+  }
+  const fetched = await fetchFreshRateLimits();
+  if (fetched) {
+    writeCache(fetched);
+    return fetched;
+  }
+  return readCache() ?? fromStdin;
 }
 
 // --- Mode RENDER (hot path) --------------------------------------------------
@@ -130,8 +244,9 @@ async function render(): Promise<void> {
     );
   }
 
-  segments.push(windowSegment("5h", data.rate_limits?.five_hour));
-  segments.push(windowSegment("sem", data.rate_limits?.seven_day));
+  const rl = await resolveRateLimits(data.rate_limits);
+  segments.push(windowSegment("5h", rl?.five_hour));
+  segments.push(windowSegment("sem", rl?.seven_day));
 
   const sep = `${C.dim} · ${C.reset}`;
   // Une seule ligne : Claude Code n'affiche que la première.
