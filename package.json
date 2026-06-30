@@ -1,0 +1,15 @@
+{
+  "name": "claude-statusline",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Status line Claude Code : usage abonnement (fenêtre 5h + limite hebdo)",
+  "type": "module",
+  "bin": {
+    "claude-statusline": "./statusline.ts"
+  },
+  "scripts": {
+    "start": "bun statusline.ts",
+    "build": "bun build --compile ./statusline.ts --outfile dist/claude-statusline",
+    "build:all": "bash scripts/build-all.sh"
+  }
+}

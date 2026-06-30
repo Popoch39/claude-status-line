@@ -1,0 +1,30 @@
+name: release
+
+# Compile les binaires pour toutes les plateformes et les attache à la release
+# quand tu pushes un tag versionné, ex. : git tag v1.0.0 && git push --tags
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Compile tous les binaires
+        run: bash scripts/build-all.sh
+
+      - name: Crée la release et attache les binaires
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
