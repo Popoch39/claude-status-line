@@ -13,10 +13,6 @@ Opus 4.8 · mon-projet (main) · 5h ███████░░░ 68% (2h14) ·
 curl -fsSL https://raw.githubusercontent.com/Popoch39/claude-status-line/main/install.sh | sh
 ```
 
-Le script détecte ton OS/archi, télécharge le binaire depuis les [Releases](https://github.com/Popoch39/claude-status-line/releases/latest), puis configure `~/.claude/settings.json`. **Relance Claude Code** ensuite.
-
-> Les barres n'apparaissent qu'après la **première réponse** de Claude dans une session (avant, un placeholder grisé `5h —` s'affiche — normal).
-
 ## Mise à jour
 
 Relance la **même** commande d'installation : elle récupère la dernière release.
