@@ -5,9 +5,6 @@ Status line pour [Claude Code](https://code.claude.com) qui affiche ton **usage 
 ```
 Opus 4.8 · mon-projet (main) · 5h ███████░░░ 68% (2h14) · sem ████░░░░░░ 41% (3j)
 ```
-
-- 🟢 < 50 % · 🟡 50–80 % · 🔴 > 80 %
-- Reset affiché en permanence (`3j` / `2h14` / `14m`)
 - Pourcentages **officiels** lus dans `rate_limits` du JSON fourni par Claude Code (abonnés Pro/Max) — aucune estimation.
 
 ## Installation
@@ -37,10 +34,3 @@ bun statusline.ts init            # configure settings.json
 bun run build                     # binaire local → dist/
 bun run build:all                 # tous les binaires (cross-compile)
 ```
-
-Publier une version : `git tag v1.0.0 && git push --tags` → le workflow GitHub Actions compile et publie les binaires.
-
-## Personnalisation
-
-Deux fonctions dans `statusline.ts` sont marquées `👉 ZONE À PERSONNALISER` :
-`bar()` (largeur/caractères des barres) et `fmtReset()` (format du compte à rebours).
